@@ -54,7 +54,8 @@ function renderObject(
   // Type-specific rendering
   switch (obj.type as SmartObjectType) {
     // --- Sockets: small filled square with + sign ---
-    case 'socket':
+    case 'socket_220v':
+    case 'socket_internet':
       return (
         <Group key={obj.id} opacity={opacity}>
           {selectionBorder}
@@ -64,20 +65,9 @@ function renderObject(
         </Group>
       );
 
-    // --- Lights: circle ---
-    case 'light':
-      return (
-        <Group key={obj.id} opacity={opacity}>
-          {selectionBorder}
-          <Circle cx={obj.position.x} cy={obj.position.y} r={w / 2} color={COLORS.BLACK} style="stroke" strokeWidth={strokeWidth} />
-          {/* Cross inside */}
-          <Line p1={vec(obj.position.x - w / 3, obj.position.y - w / 3)} p2={vec(obj.position.x + w / 3, obj.position.y + w / 3)} color={COLORS.BLACK} strokeWidth={strokeWidth} />
-          <Line p1={vec(obj.position.x + w / 3, obj.position.y - w / 3)} p2={vec(obj.position.x - w / 3, obj.position.y + w / 3)} color={COLORS.BLACK} strokeWidth={strokeWidth} />
-        </Group>
-      );
-
     // --- Switches: small square with diagonal ---
-    case 'switch':
+    case 'light_switch':
+    case 'electric_panel':
       return (
         <Group key={obj.id} opacity={opacity}>
           {selectionBorder}
@@ -86,21 +76,10 @@ function renderObject(
         </Group>
       );
 
-    // --- Doors: rectangle with arc indicator ---
-    case 'door':
-      return (
-        <Group key={obj.id} opacity={opacity}>
-          {selectionBorder}
-          <Rect x={x} y={y} width={w} height={h} color={COLORS.WHITE} />
-          <Rect x={x} y={y} width={w} height={h} color={COLORS.BLACK} style="stroke" strokeWidth={strokeWidth} />
-          {/* Door swing line */}
-          <Line p1={vec(x, y + h)} p2={vec(x + w, y)} color={COLORS.BLACK} strokeWidth={strokeWidth} />
-        </Group>
-      );
-
     // --- Plumbing items: circles ---
-    case 'drain':
-    case 'pipe':
+    case 'toilet':
+    case 'sink':
+    case 'shower_cabin':
       return (
         <Group key={obj.id} opacity={opacity}>
           {selectionBorder}

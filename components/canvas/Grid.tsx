@@ -1,126 +1,102 @@
 // =============================================================================
-// Vector Architect — Infinite Grid Renderer (Skia)
-// Draws minor (100mm) and major (1m) gridlines based on visible viewport.
+// Vector Architect — Infinite Grid Renderer
+// Highly optimized Skia Grid. Only draws lines visible in the current viewport.
+// Uses single Path objects for rendering to maintain 60fps during gestures.
 // =============================================================================
 
-import React from 'react';
-import { Line, vec } from '@shopify/react-native-skia';
-import { COLORS, GRID } from '@/types/blueprint';
+import React, { useMemo } from 'react';
+import { Path, Skia } from '@shopify/react-native-skia';
+import { DEFAULTS, COLORS } from '@/types/blueprint';
 
 interface GridProps {
-  /** Canvas width in pixels */
   canvasWidth: number;
-  /** Canvas height in pixels */
   canvasHeight: number;
-  /** Current camera translation X */
   translateX: number;
-  /** Current camera translation Y */
   translateY: number;
-  /** Current zoom scale */
   scale: number;
 }
 
-const MINOR_COLOR = COLORS.GRID_MINOR;
-const MAJOR_COLOR = COLORS.GRID_MAJOR;
-
-function Grid({
+export default function Grid({
   canvasWidth,
   canvasHeight,
   translateX,
   translateY,
   scale,
 }: GridProps) {
-  const lines: React.ReactElement[] = [];
+  // Вычисляем видимую область чертежа (Viewport) с учетом зума и панорамирования
+  const viewport = useMemo(() => {
+    return {
+      left: -translateX / scale,
+      right: (canvasWidth - translateX) / scale,
+      top: -translateY / scale,
+      bottom: (canvasHeight - translateY) / scale,
+    };
+  }, [canvasWidth, canvasHeight, translateX, translateY, scale]);
 
-  const minorSpacing = GRID.MINOR_SPACING * scale;
-  const majorSpacing = GRID.MAJOR_SPACING * scale;
+  // Генерируем пути (Path) для сетки
+  const { minorGridPath, majorGridPath } = useMemo(() => {
+    const minorPath = Skia.Path.Make();
+    const majorPath = Skia.Path.Make();
 
-  // Determine grid density — skip minor lines when zoomed out too far
-  const drawMinor = minorSpacing >= 4;
+    const step = DEFAULTS.GRID_SIZE; // Обычный шаг (например, 100мм)
+    const majorStep = step * 10;     // Крупный шаг (каждый 1 метр)
 
-  // Visible bounds in world coordinates
-  const worldLeft = -translateX / scale;
-  const worldTop = -translateY / scale;
-  const worldRight = worldLeft + canvasWidth / scale;
-  const worldBottom = worldTop + canvasHeight / scale;
+    // Если мы слишком сильно отдалили камеру, нет смысла рисовать мелкую сетку 
+    // (она сольется в серое пятно и убьет FPS).
+    const hideMinorGrid = scale < 0.3;
 
-  // Major gridlines (always drawn)
-  const majorStartX =
-    Math.floor(worldLeft / GRID.MAJOR_SPACING) * GRID.MAJOR_SPACING;
-  const majorEndX =
-    Math.ceil(worldRight / GRID.MAJOR_SPACING) * GRID.MAJOR_SPACING;
-  const majorStartY =
-    Math.floor(worldTop / GRID.MAJOR_SPACING) * GRID.MAJOR_SPACING;
-  const majorEndY =
-    Math.ceil(worldBottom / GRID.MAJOR_SPACING) * GRID.MAJOR_SPACING;
+    // Вычисляем начальные точки отрисовки, округленные до сетки
+    const startX = Math.floor(viewport.left / step) * step;
+    const endX = Math.ceil(viewport.right / step) * step;
+    const startY = Math.floor(viewport.top / step) * step;
+    const endY = Math.ceil(viewport.bottom / step) * step;
 
-  // Vertical major lines
-  for (let x = majorStartX; x <= majorEndX; x += GRID.MAJOR_SPACING) {
-    lines.push(
-      <Line
-        key={`mv_${x}`}
-        p1={vec(x, worldTop)}
-        p2={vec(x, worldBottom)}
-        color={MAJOR_COLOR}
-        strokeWidth={1 / scale}
-      />,
-    );
-  }
-
-  // Horizontal major lines
-  for (let y = majorStartY; y <= majorEndY; y += GRID.MAJOR_SPACING) {
-    lines.push(
-      <Line
-        key={`mh_${y}`}
-        p1={vec(worldLeft, y)}
-        p2={vec(worldRight, y)}
-        color={MAJOR_COLOR}
-        strokeWidth={1 / scale}
-      />,
-    );
-  }
-
-  // Minor gridlines (only when zoomed in enough)
-  if (drawMinor) {
-    const minorStartX =
-      Math.floor(worldLeft / GRID.MINOR_SPACING) * GRID.MINOR_SPACING;
-    const minorEndX =
-      Math.ceil(worldRight / GRID.MINOR_SPACING) * GRID.MINOR_SPACING;
-    const minorStartY =
-      Math.floor(worldTop / GRID.MINOR_SPACING) * GRID.MINOR_SPACING;
-    const minorEndY =
-      Math.ceil(worldBottom / GRID.MINOR_SPACING) * GRID.MINOR_SPACING;
-
-    // Vertical minor lines (skip those already drawn as major)
-    for (let x = minorStartX; x <= minorEndX; x += GRID.MINOR_SPACING) {
-      if (x % GRID.MAJOR_SPACING === 0) continue;
-      lines.push(
-        <Line
-          key={`nv_${x}`}
-          p1={vec(x, worldTop)}
-          p2={vec(x, worldBottom)}
-          color={MINOR_COLOR}
-          strokeWidth={0.5 / scale}
-        />,
-      );
+    // Рисуем вертикальные линии
+    for (let x = startX; x <= endX; x += step) {
+      const isMajor = x % majorStep === 0;
+      if (isMajor) {
+        majorPath.moveTo(x, viewport.top);
+        majorPath.lineTo(x, viewport.bottom);
+      } else if (!hideMinorGrid) {
+        minorPath.moveTo(x, viewport.top);
+        minorPath.lineTo(x, viewport.bottom);
+      }
     }
 
-    // Horizontal minor lines
-    for (let y = minorStartY; y <= minorEndY; y += GRID.MINOR_SPACING) {
-      if (y % GRID.MAJOR_SPACING === 0) continue;
-      lines.push(
-        <Line
-          key={`nh_${y}`}
-          p1={vec(worldLeft, y)}
-          p2={vec(worldRight, y)}
-          color={MINOR_COLOR}
-          strokeWidth={0.5 / scale}
-        />,
-      );
+    // Рисуем горизонтальные линии
+    for (let y = startY; y <= endY; y += step) {
+      const isMajor = y % majorStep === 0;
+      if (isMajor) {
+        majorPath.moveTo(viewport.left, y);
+        majorPath.lineTo(viewport.right, y);
+      } else if (!hideMinorGrid) {
+        minorPath.moveTo(viewport.left, y);
+        minorPath.lineTo(viewport.right, y);
+      }
     }
-  }
 
-  return <>{lines}</>;
+    return { minorGridPath: minorPath, majorGridPath: majorPath };
+  }, [viewport, scale]);
+
+  return (
+    <>
+      {/* Мелкая сетка (шаг 100мм). Более тонкая и светлая */}
+      <Path
+        path={minorGridPath}
+        color={COLORS.GRID_LINE}
+        style="stroke"
+        strokeWidth={1 / scale} // Толщина всегда 1px на экране, независимо от зума!
+        opacity={0.5}
+      />
+      
+      {/* Крупная сетка (каждый 1 метр). Более жирная */}
+      <Path
+        path={majorGridPath}
+        color={COLORS.GRID_LINE}
+        style="stroke"
+        strokeWidth={2 / scale}
+        opacity={1}
+      />
+    </>
+  );
 }
-
-export default React.memo(Grid);
