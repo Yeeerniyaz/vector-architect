@@ -156,15 +156,15 @@ export const DEFAULTS = {
 export const COLORS = {
   // Base
   WHITE: '#FFFFFF',
-  BLACK: '#000000',
-  BACKGROUND: '#F9F9F9',
-  GRID_LINE: '#E5E5E5',
+  BLACK: '#18181B', // Zinc 900 for softer, more premium contrast
+  BACKGROUND: '#FAFAFA', // Zinc 50
+  GRID_LINE: '#E4E4E7', // Zinc 200
   
   // Semantic / Interactive
-  DANGER: '#FF3B30',  // System Red (Conflicts, Deletion)
-  SUCCESS: '#34C759', // System Green (Save, Apply)
-  ACTIVE: '#FFCC00',  // System Yellow (Selection, Auto-Routing paths)
+  DANGER: '#EF4444',  // Red 500
+  SUCCESS: '#10B981', // Emerald 500
+  ACTIVE: '#0EA5E9',  // Modern cyan/blue selection
   
   // Specific routes
-  WATER_COLD: '#007AFF', // Blue only for plumbing routes to distinguish from electrics
+  WATER_COLD: '#3B82F6', // Blue 500
 };

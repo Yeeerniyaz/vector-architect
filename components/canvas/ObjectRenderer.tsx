@@ -1,121 +1,83 @@
 // =============================================================================
-// Vector Architect — Object Renderer (Skia)
-// Draws parametric SmartObjects as Skia paths based on type/dimensions.
+// Vector Architect — Object Renderer
+// Hardware-accelerated rendering using Skia Path from the SVG Library.
 // =============================================================================
 
 import React from 'react';
-import {
-  Rect,
-  Circle,
-  Group,
-  vec,
-  Line,
-} from '@shopify/react-native-skia';
-import { useEditorStore } from '@/store/editorStore';
-import { COLORS, type Layer, type SmartObject, type SmartObjectType } from '@/types/blueprint';
-import { mmToCanvas } from '@/utils/snapping';
+import { Group, Path } from '@shopify/react-native-skia';
+import { useEditorStore } from '../../store/editorStore';
+import { COLORS, Layer } from '../../types/blueprint';
+import { SVG_LIBRARY } from '../../utils/svgLibrary';
 
 interface ObjectRendererProps {
   activeLayer: Layer;
   scale: number;
 }
 
-/**
- * Renders a single SmartObject as a parametric Skia shape.
- * Each type has its own visual representation.
- */
-function renderObject(
-  obj: SmartObject,
-  isActive: boolean,
-  scale: number,
-  isSelected: boolean,
-) {
-  const w = mmToCanvas(obj.width);
-  const h = mmToCanvas(obj.height);
-  const opacity = isActive ? 1.0 : 0.2;
-  const x = obj.position.x - w / 2;
-  const y = obj.position.y - h / 2;
+export default function ObjectRenderer({ activeLayer, scale }: ObjectRendererProps) {
+  const project = useEditorStore((state) => state.project);
+  const selectedObjectId = useEditorStore((state) => state.selectedObjectId);
+  const activeRoom = project.rooms.find((r) => r.id === project.activeRoomId);
 
-  // Selection highlight
-  const selectionBorder = isSelected ? (
-    <Rect
-      x={x - 2 / scale}
-      y={y - 2 / scale}
-      width={w + 4 / scale}
-      height={h + 4 / scale}
-      color={COLORS.ACTIVE}
-      style="stroke"
-      strokeWidth={2 / scale}
-    />
-  ) : null;
-
-  const strokeWidth = 1 / scale;
-
-  // Type-specific rendering
-  switch (obj.type as SmartObjectType) {
-    // --- Sockets: small filled square with + sign ---
-    case 'socket_220v':
-    case 'socket_internet':
-      return (
-        <Group key={obj.id} opacity={opacity}>
-          {selectionBorder}
-          <Rect x={x} y={y} width={w} height={h} color={COLORS.BLACK} style="stroke" strokeWidth={strokeWidth} />
-          <Line p1={vec(obj.position.x, y + 2 / scale)} p2={vec(obj.position.x, y + h - 2 / scale)} color={COLORS.BLACK} strokeWidth={strokeWidth} />
-          <Line p1={vec(x + 2 / scale, obj.position.y)} p2={vec(x + w - 2 / scale, obj.position.y)} color={COLORS.BLACK} strokeWidth={strokeWidth} />
-        </Group>
-      );
-
-    // --- Switches: small square with diagonal ---
-    case 'light_switch':
-    case 'electric_panel':
-      return (
-        <Group key={obj.id} opacity={opacity}>
-          {selectionBorder}
-          <Rect x={x} y={y} width={w} height={h} color={COLORS.BLACK} style="stroke" strokeWidth={strokeWidth} />
-          <Line p1={vec(x, y)} p2={vec(x + w, y + h)} color={COLORS.BLACK} strokeWidth={strokeWidth} />
-        </Group>
-      );
-
-    // --- Plumbing items: circles ---
-    case 'toilet':
-    case 'sink':
-    case 'shower_cabin':
-      return (
-        <Group key={obj.id} opacity={opacity}>
-          {selectionBorder}
-          <Circle cx={obj.position.x} cy={obj.position.y} r={w / 2} color={COLORS.BLACK} style="stroke" strokeWidth={strokeWidth} />
-          <Circle cx={obj.position.x} cy={obj.position.y} r={w / 4} color={COLORS.BLACK} style="fill" />
-        </Group>
-      );
-
-    // --- Default: filled rectangle for furniture / appliances ---
-    default:
-      return (
-        <Group key={obj.id} opacity={opacity}>
-          {selectionBorder}
-          <Rect x={x} y={y} width={w} height={h} color={COLORS.WHITE} />
-          <Rect x={x} y={y} width={w} height={h} color={COLORS.BLACK} style="stroke" strokeWidth={strokeWidth} />
-        </Group>
-      );
-  }
-}
-
-function ObjectRenderer({ activeLayer, scale }: ObjectRendererProps) {
-  const project = useEditorStore((s) => s.project);
-  const selectedObjectId = useEditorStore((s) => s.selectedObjectId);
-  const room = project.rooms.find((r) => r.id === project.activeRoomId);
-
-  if (!room) return null;
+  if (!activeRoom || activeRoom.objects.length === 0) return null;
 
   return (
-    <>
-      {room.objects.map((obj) => {
-        const isActive = obj.layer === activeLayer;
+    <Group>
+      {activeRoom.objects.map((obj) => {
+        const isActiveLayer = obj.layer === activeLayer;
         const isSelected = obj.id === selectedObjectId;
-        return renderObject(obj, isActive, scale, isSelected);
+        const opacity = isActiveLayer ? 1 : 0.2;
+        const strokeColor = isSelected ? COLORS.ACTIVE : COLORS.BLACK;
+
+        // Достаем SVG путь (d="M ...") из нашей библиотеки. Если нет - берем fallback.
+        const svgString = SVG_LIBRARY[obj.type] || SVG_LIBRARY.fallback;
+
+        // МАСШТАБИРОВАНИЕ: 
+        // Наша SVG нарисована в квадрате 100х100. 
+        // Если объект (например, диван) имеет размер 2200x900, мы растягиваем SVG:
+        const scaleX = obj.width / 100;
+        const scaleY = obj.height / 100;
+
+        // Чтобы линия (stroke) не становилась толщиной в бревно при масштабировании,
+        // вычисляем компенсацию. Это магия CAD-рендера!
+        const averageScale = (scaleX + scaleY) / 2;
+        const baseStrokeWidth = isSelected ? 3 : 1.5;
+        const compensatedStrokeWidth = (baseStrokeWidth / scale) / averageScale;
+
+        return (
+          <Group
+            key={obj.id}
+            // 1. Ставим объект в нужные координаты на чертеже
+            // 2. Вращаем его на заданный угол
+            // 3. Растягиваем квадрат 100х100 до реальных миллиметров
+            transform={[
+              { translateX: obj.position.x },
+              { translateY: obj.position.y },
+              { rotate: obj.rotation },
+              { scaleX: scaleX },
+              { scaleY: scaleY },
+            ]}
+          >
+            {/* Белая подложка (заливка), чтобы мебель перекрывала линии стен и сетку */}
+            <Path 
+              path={svgString} 
+              color={COLORS.WHITE} 
+              style="fill" 
+              opacity={opacity} 
+            />
+            {/* Сам чертеж (черные или желтые контуры) */}
+            <Path 
+              path={svgString} 
+              color={strokeColor} 
+              style="stroke" 
+              strokeWidth={compensatedStrokeWidth} 
+              strokeCap="round"
+              strokeJoin="round"
+              opacity={opacity} 
+            />
+          </Group>
+        );
       })}
-    </>
+    </Group>
   );
 }
-
-export default React.memo(ObjectRenderer);

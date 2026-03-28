@@ -1,10 +1,10 @@
 // =============================================================================
 // Vector Architect — Wall Renderer
-// Hardware-accelerated rendering of all structural walls using a single Skia Path.
+// Hardware-accelerated rendering of walls and their connection nodes.
 // =============================================================================
 
 import React, { useMemo } from 'react';
-import { Path, Skia, Group } from '@shopify/react-native-skia';
+import { Path, Skia, Group, Rect } from '@shopify/react-native-skia';
 import { useEditorStore } from '../../store/editorStore';
 import { COLORS, Layer } from '../../types/blueprint';
 
@@ -14,22 +14,17 @@ interface WallRendererProps {
 }
 
 export default function WallRenderer({ activeLayer, scale }: WallRendererProps) {
-  // Получаем весь проект из стора
   const project = useEditorStore((state) => state.project);
-  
-  // Ищем активную комнату (этаж/чертеж)
+  const draftWallNodeId = useEditorStore((state) => state.draftWallNodeId);
   const activeRoom = project.rooms.find((r) => r.id === project.activeRoomId);
 
-  // Мемоизируем сборку стен, чтобы не пересчитывать математику при каждом свайпе камеры
+  // 1. РЕНДЕР СТЕН (Массивная геометрия)
   const wallsPath = useMemo(() => {
     const path = Skia.Path.Make();
-
     if (!activeRoom) return path;
 
-    // Для быстрого поиска узлов превращаем массив в словарь (Map)
     const nodesMap = new Map(activeRoom.wallNodes.map((n) => [n.id, n.position]));
 
-    // Проходимся по всем стенам и рисуем их
     activeRoom.walls.forEach((wall) => {
       const startNode = nodesMap.get(wall.startNodeId);
       const endNode = nodesMap.get(wall.endNodeId);
@@ -43,35 +38,51 @@ export default function WallRenderer({ activeLayer, scale }: WallRendererProps) 
     return path;
   }, [activeRoom?.walls, activeRoom?.wallNodes]);
 
-  // Если чертеж пустой - ничего не рендерим
-  if (!activeRoom || activeRoom.walls.length === 0) return null;
+  if (!activeRoom) return null;
 
-  // Логика слоев: если мы сейчас работаем с электрикой или мебелью,
-  // стены должны стать полупрозрачными и уйти на задний план.
   const isWallsActive = activeLayer === 'walls';
   const wallOpacity = isWallsActive ? 1 : 0.2;
+  const wallThickness = isWallsActive ? 4 / scale : 2 / scale;
+  
+  // Размер архитектурного узла (колышка) на чертеже
+  const nodeSize = 10 / scale; 
 
   return (
     <Group>
-      {/* Рисуем все стены одним махом. 
-        В будущем здесь можно будет добавить штриховку (Hatch) для заливки бетона,
-        но для начала нам нужен строгий минимализм - просто черные линии.
-      */}
+      {/* 1. Линии Стен */}
       <Path
         path={wallsPath}
         color={COLORS.BLACK}
         style="stroke"
-        // strokeWidth={200} // Настоящая толщина стены (например, 200мм)
-        // Для режима черчения (wireframe) можно использовать тонкие линии:
-        strokeWidth={isWallsActive ? 4 / scale : 2 / scale} 
-        strokeJoin="miter" // Острые углы на стыках стен
-        strokeCap="square" // Квадратные обрубовки на концах
+        strokeWidth={wallThickness}
+        strokeJoin="miter"
+        strokeCap="square"
         opacity={wallOpacity}
       />
-      
-      {/* Здесь позже появится рендер "Узлов" (Nodes) - маленьких квадратиков 
-        на концах стен, за которые пользователь будет тянуть пальцем.
-      */}
+
+      {/* 2. Точки стыков (Узлы). Рисуем только если активен слой стен */}
+      {isWallsActive && activeRoom.wallNodes.map((node) => {
+        // Подсвечиваем активный узел (от которого сейчас тянем стену) желтым цветом
+        const isDrafting = node.id === draftWallNodeId;
+        const color = isDrafting ? COLORS.ACTIVE : COLORS.BLACK;
+        const currentSize = isDrafting ? nodeSize * 1.5 : nodeSize; // Активный узел делаем чуть больше
+        
+        // Смещаем координаты на половину размера, чтобы центр квадрата лежал ровно в точке клика
+        const offset = currentSize / 2;
+
+        return (
+          <Rect
+            key={node.id}
+            x={node.position.x - offset}
+            y={node.position.y - offset}
+            width={currentSize}
+            height={currentSize}
+            color={color}
+            style={isDrafting ? "fill" : "stroke"} // Активный заливаем, обычный - контуром
+            strokeWidth={1.5 / scale}
+          />
+        );
+      })}
     </Group>
   );
 }

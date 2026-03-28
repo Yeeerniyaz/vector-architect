@@ -1,22 +1,23 @@
 // =============================================================================
 // Vector Architect — Tool Overlay (UI Layer)
-// Floating UI panels sitting above the Skia Canvas.
+// Floating UI panels sitting above the Skia Canvas. Connected to Zustand.
+// Now includes the Smart Object Catalog Menu.
 // =============================================================================
 
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView } from 'react-native';
-import { useEditorStore } from '../../store/editorStore';
-import { Layer, COLORS } from '../../types/blueprint';
+import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView } from 'react-native';
+import { useEditorStore, ToolMode, OBJECT_CATALOG } from '../../store/editorStore';
+import { Layer, COLORS, SmartObjectType } from '../../types/blueprint';
 
 export default function ToolOverlay() {
   const activeLayer = useEditorStore((state) => state.activeLayer);
   const setActiveLayer = useEditorStore((state) => state.setActiveLayer);
 
-  // Временная функция-заглушка для кнопок. Позже мы привяжем их к стору.
-  const handleToolPress = (toolName: string) => {
-    console.log(`Выбран инструмент: ${toolName}`);
-    // Здесь мы будем переключать режимы жестов (например, с "Панорама" на "Черчение стены")
-  };
+  const activeTool = useEditorStore((state) => state.activeTool);
+  const setActiveTool = useEditorStore((state) => state.setActiveTool);
+
+  const activeObjectType = useEditorStore((state) => state.activeObjectType);
+  const setActiveObjectType = useEditorStore((state) => state.setActiveObjectType);
 
   return (
     <SafeAreaView style={styles.pointerEventsContainer} pointerEvents="box-none">
@@ -43,32 +44,70 @@ export default function ToolOverlay() {
         />
       </View>
 
-      {/* --- НИЖНЯЯ ПАНЕЛЬ: Инструменты (Плавающая пилюля) --- */}
-      <View style={styles.bottomBarWrapper} pointerEvents="box-none">
-        <View style={styles.bottomBar}>
-          
-          <TouchableOpacity style={styles.toolBtn} onPress={() => handleToolPress('SELECT')}>
-            <Text style={styles.toolIcon}>👆</Text>
-            <Text style={styles.toolText}>ВЫДЕЛИТЬ</Text>
-          </TouchableOpacity>
+      {/* --- НИЖНИЙ БЛОК ИНСТРУМЕНТОВ --- */}
+      <View style={styles.bottomArea} pointerEvents="box-none">
+        
+        {/* Выезжающий каталог объектов (Виден только если выбран инструмент ОБЪЕКТ) */}
+        {activeTool === 'ADD_OBJECT' && (
+          <View style={styles.catalogWrapper}>
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.catalogScroll}
+            >
+              {/* Проходимся по всему нашему словарю ГОСТ-объектов из стора */}
+              {(Object.keys(OBJECT_CATALOG) as SmartObjectType[]).map((key) => {
+                const item = OBJECT_CATALOG[key];
+                const isSelected = activeObjectType === key;
 
-          <View style={styles.divider} />
+                return (
+                  <TouchableOpacity
+                    key={key}
+                    style={[styles.catalogItem, isSelected && styles.catalogItemActive]}
+                    onPress={() => setActiveObjectType(key)}
+                  >
+                    <Text style={styles.catalogItemIcon}>{item.icon}</Text>
+                    <Text style={[styles.catalogItemText, isSelected && styles.catalogItemTextActive]}>
+                      {item.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
 
-          <TouchableOpacity style={styles.toolBtn} onPress={() => handleToolPress('DRAW_WALL')}>
-            <Text style={styles.toolIcon}>✏️</Text>
-            <Text style={styles.toolText}>СТЕНА</Text>
-          </TouchableOpacity>
+        {/* Главная плавающая пилюля (Инструменты) */}
+        <View style={styles.bottomBarWrapper} pointerEvents="box-none">
+          <View style={styles.bottomBar}>
+            
+            <ToolButton 
+              icon="👆" 
+              label="ВЫДЕЛИТЬ" 
+              isActive={activeTool === 'SELECT'} 
+              onPress={() => setActiveTool('SELECT')} 
+            />
+            <View style={styles.divider} />
+            
+            <ToolButton 
+              icon="✏️" 
+              label="СТЕНА" 
+              isActive={activeTool === 'DRAW_WALL'} 
+              onPress={() => setActiveTool('DRAW_WALL')} 
+            />
+            <View style={styles.divider} />
+            
+            <ToolButton 
+              icon="+" 
+              label="ОБЪЕКТ" 
+              isActive={activeTool === 'ADD_OBJECT'} 
+              onPress={() => setActiveTool('ADD_OBJECT')} 
+            />
 
-          <View style={styles.divider} />
-
-          <TouchableOpacity style={styles.toolBtn} onPress={() => handleToolPress('ADD_OBJECT')}>
-            <Text style={styles.toolIcon}>+</Text>
-            <Text style={styles.toolText}>ОБЪЕКТ</Text>
-          </TouchableOpacity>
-
+          </View>
         </View>
-      </View>
 
+      </View>
     </SafeAreaView>
   );
 }
@@ -91,13 +130,25 @@ const LayerButton = ({ title, layer, activeLayer, onPress }: { title: string, la
   );
 };
 
+const ToolButton = ({ icon, label, isActive, onPress }: { icon: string, label: string, isActive: boolean, onPress: () => void }) => {
+  return (
+    <TouchableOpacity 
+      style={[styles.toolBtn, isActive && styles.toolBtnActive]} 
+      onPress={onPress}
+    >
+      <Text style={styles.toolIcon}>{icon}</Text>
+      <Text style={[styles.toolText, isActive && styles.toolTextActive]}>{label}</Text>
+    </TouchableOpacity>
+  );
+};
+
 // =============================================================================
-// СТИЛИ (Строгий Архитектурный Минимализм)
+// СТИЛИ
 // =============================================================================
 
 const styles = StyleSheet.create({
   pointerEventsContainer: {
-    ...StyleSheet.absoluteFillObject, // Растягиваем на весь экран поверх холста
+    ...StyleSheet.absoluteFillObject,
     justifyContent: 'space-between',
   },
   
@@ -114,11 +165,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.BLACK,
     backgroundColor: COLORS.WHITE,
-    marginHorizontal: -0.5, // Схлопываем границы между кнопками
+    marginHorizontal: -0.5,
   },
-  layerBtnActive: {
-    backgroundColor: COLORS.BLACK,
-  },
+  layerBtnActive: { backgroundColor: COLORS.BLACK },
   layerBtnText: {
     color: COLORS.BLACK,
     fontSize: 12,
@@ -126,11 +175,50 @@ const styles = StyleSheet.create({
     fontFamily: 'monospace',
     letterSpacing: 1,
   },
-  layerBtnTextActive: {
+  layerBtnTextActive: { color: COLORS.WHITE },
+
+  // Нижняя зона (Каталог + Инструменты)
+  bottomArea: {
+    justifyContent: 'flex-end',
+  },
+
+  // Каталог объектов
+  catalogWrapper: {
+    marginBottom: 15,
+  },
+  catalogScroll: {
+    paddingHorizontal: 20,
+    gap: 10, // Расстояние между карточками
+  },
+  catalogItem: {
+    backgroundColor: COLORS.WHITE,
+    borderWidth: 1,
+    borderColor: COLORS.BLACK,
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 80,
+  },
+  catalogItemActive: {
+    backgroundColor: COLORS.BLACK,
+  },
+  catalogItemIcon: {
+    fontSize: 24,
+    marginBottom: 5,
+  },
+  catalogItemText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    fontFamily: 'monospace',
+    color: COLORS.BLACK,
+  },
+  catalogItemTextActive: {
     color: COLORS.WHITE,
   },
 
-  // Нижняя плавающая панель
+  // Главные инструменты
   bottomBarWrapper: {
     paddingBottom: 30,
     alignItems: 'center',
@@ -140,23 +228,27 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.WHITE,
     borderWidth: 1,
     borderColor: COLORS.BLACK,
-    borderRadius: 30, // Форма пилюли
-    paddingVertical: 10,
-    paddingHorizontal: 20,
+    borderRadius: 30,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
     shadowColor: COLORS.BLACK,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 10,
-    elevation: 5, // Для Android
+    elevation: 5,
   },
   toolBtn: {
     alignItems: 'center',
     paddingHorizontal: 15,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  toolBtnActive: {
+    backgroundColor: COLORS.BLACK,
   },
   toolIcon: {
-    fontSize: 20,
+    fontSize: 18,
     marginBottom: 4,
-    color: COLORS.BLACK,
   },
   toolText: {
     fontSize: 10,
@@ -164,10 +256,13 @@ const styles = StyleSheet.create({
     fontFamily: 'monospace',
     color: COLORS.BLACK,
   },
+  toolTextActive: {
+    color: COLORS.WHITE,
+  },
   divider: {
     width: 1,
     backgroundColor: COLORS.BLACK,
-    marginVertical: 5,
+    marginVertical: 10,
     marginHorizontal: 5,
   }
 });
